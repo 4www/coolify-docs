@@ -263,7 +263,7 @@ You should see an SSO login flow similar to:
 }
 ```
 
-To test the OIDC redirect flow, use the provider ID from `OIDC_PROVIDER_ID`:
+To test the OIDC redirect flow, use the provider ID from `OIDC_PROVIDER_ID`. For `OIDC_PROVIDER_ID=authentik`:
 
 ```bash
 curl -I "https://matrix.example.org/_matrix/client/v3/login/sso/redirect/oidc-authentik?redirectUrl=https%3A%2F%2Fmatrix.example.org"
