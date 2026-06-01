@@ -97,6 +97,7 @@ For public registration, also configure reCAPTCHA:
 ```env
 RECAPTCHA_PUBLIC_KEY=your-public-key
 RECAPTCHA_PRIVATE_KEY=your-private-key
+RECAPTCHA_SITEVERIFY_API=https://www.recaptcha.net/recaptcha/api/siteverify
 ```
 
 To allow registration without email or other verification checks, set:
@@ -247,6 +248,20 @@ For example, a user with `preferred_username=alice` becomes:
 
 Do not change the localpart mapping after users have started logging in unless you understand the account-linking consequences.
 
+### SSO client whitelist and profile updates
+
+If you use a Matrix web client, add it to the SSO client whitelist to avoid extra confirmation screens after SSO login:
+
+```env
+SSO_CLIENT_WHITELIST=https://element.example.org/,https://cinny.example.org/
+```
+
+By default, Synapse does not keep updating Matrix display names and emails from the SSO profile after the first login. To allow profile updates from SSO on later logins, set:
+
+```env
+SSO_UPDATE_PROFILE_INFORMATION=true
+```
+
 ## Testing SSO
 
 After deploying, test the login endpoint:
@@ -307,6 +322,7 @@ On `https://example.org`, serve the following files:
 | `ENABLE_GUEST_ACCESS` | `false` | Enables guest users. |
 | `RECAPTCHA_PUBLIC_KEY` | empty | Public key for registration CAPTCHA. |
 | `RECAPTCHA_PRIVATE_KEY` | empty | Private key for registration CAPTCHA. |
+| `RECAPTCHA_SITEVERIFY_API` | `https://www.recaptcha.net/recaptcha/api/siteverify` | reCAPTCHA verification endpoint. |
 | `AUTO_JOIN_ROOMS` | empty | Comma-separated rooms for new users to join. |
 | `AUTO_CREATE_AUTO_JOIN_ROOMS` | `true` | Automatically create configured auto-join rooms. |
 | `AUTO_CREATE_AUTO_JOIN_ROOMS_FEDERATED` | `false` | Allow auto-created rooms to be federated. |
@@ -325,6 +341,8 @@ On `https://example.org`, serve the following files:
 | `OIDC_LOCALPART_TEMPLATE` | `{{ user.preferred_username|lower }}` | Matrix localpart mapping template. |
 | `OIDC_DISPLAY_NAME_TEMPLATE` | `{{ user.name\|default(user.preferred_username) }}` | Matrix display name mapping template. |
 | `OIDC_EMAIL_TEMPLATE` | `{{ user.email }}` | Matrix email mapping template. |
+| `SSO_CLIENT_WHITELIST` | empty | Comma-separated web client URLs trusted for SSO redirects. |
+| `SSO_UPDATE_PROFILE_INFORMATION` | `false` | Updates Matrix display name/email from SSO profile on subsequent logins. |
 
 ## Links
 
