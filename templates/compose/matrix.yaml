@@ -1,0 +1,239 @@
+# documentation: https://matrix.org/docs/chat_basics/matrix-for-im/
+# slogan: Chat securely with your family, friends, community, or build great apps with Matrix!
+# category: messaging
+# tags: chat,slack,discord,voip,video,call
+# logo: svgs/matrix.svg
+# port: 8008
+
+services:
+  matrix:
+    image: matrixdotorg/synapse:latest
+    environment:
+      - SERVICE_URL_MATRIX_8008
+      - SYNAPSE_SERVER_NAME=${SYNAPSE_SERVER_NAME:-}
+      - SYNAPSE_PUBLIC_BASEURL=${SYNAPSE_PUBLIC_BASEURL:-}
+      - SYNAPSE_REPORT_STATS=${SYNAPSE_REPORT_STATS:-no}
+      - ENABLE_REGISTRATION=${ENABLE_REGISTRATION:-false}
+      - ENABLE_REGISTRATION_WITHOUT_VERIFICATION=${ENABLE_REGISTRATION_WITHOUT_VERIFICATION:-false}
+      - ENABLE_GUEST_ACCESS=${ENABLE_GUEST_ACCESS:-false}
+      - RECAPTCHA_PUBLIC_KEY=${RECAPTCHA_PUBLIC_KEY:-}
+      - RECAPTCHA_PRIVATE_KEY=${RECAPTCHA_PRIVATE_KEY:-}
+      - AUTO_JOIN_ROOMS=${AUTO_JOIN_ROOMS:-}
+      - AUTO_CREATE_AUTO_JOIN_ROOMS=${AUTO_CREATE_AUTO_JOIN_ROOMS:-true}
+      - AUTO_CREATE_AUTO_JOIN_ROOMS_FEDERATED=${AUTO_CREATE_AUTO_JOIN_ROOMS_FEDERATED:-false}
+      - ALLOW_PUBLIC_ROOMS_OVER_FEDERATION=${ALLOW_PUBLIC_ROOMS_OVER_FEDERATION:-false}
+      - ALLOW_PUBLIC_ROOMS_WITHOUT_AUTH=${ALLOW_PUBLIC_ROOMS_WITHOUT_AUTH:-false}
+      - OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - OIDC_PROVIDER_ID=${OIDC_PROVIDER_ID:-oidc}
+      - OIDC_PROVIDER_NAME=${OIDC_PROVIDER_NAME:-OpenID Connect}
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_SCOPES=${OIDC_SCOPES:-openid,profile,email}
+      - OIDC_CLIENT_AUTH_METHOD=${OIDC_CLIENT_AUTH_METHOD:-client_secret_basic}
+      - OIDC_ENABLE_REGISTRATION=${OIDC_ENABLE_REGISTRATION:-true}
+      - OIDC_ALLOW_EXISTING_USERS=${OIDC_ALLOW_EXISTING_USERS:-true}
+      - OIDC_LOCALPART_TEMPLATE=${OIDC_LOCALPART_TEMPLATE:-}
+      - OIDC_DISPLAY_NAME_TEMPLATE=${OIDC_DISPLAY_NAME_TEMPLATE:-}
+      - OIDC_EMAIL_TEMPLATE=${OIDC_EMAIL_TEMPLATE:-}
+      - SSO_CLIENT_WHITELIST=${SSO_CLIENT_WHITELIST:-}
+      - _SERVER_NAME=${SERVICE_FQDN_MATRIX}
+      - _ADMIN_NAME=${SERVICE_USER_ADMIN:-}
+      - _ADMIN_PASS=${SERVICE_PASSWORD_ADMIN:-}
+    volumes:
+      - matrix-data:/data
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        ! test -f /data/homeserver.yaml && /start.py generate
+
+        # registration_shared_secret
+        grep "registration_shared_secret" /data/homeserver.yaml \
+        | awk '{print $2}' > ./registration_shared_secret
+
+        # macaroon_secret_key
+        grep "macaroon_secret_key" /data/homeserver.yaml \
+        | awk '{print $2}' > ./macaroon_secret_key
+
+        # form_secret
+        grep "form_secret" /data/homeserver.yaml \
+        | awk '{print $2}' > ./form_secret
+
+        SERVER_NAME="${SYNAPSE_SERVER_NAME:-${_SERVER_NAME}}"
+        PUBLIC_BASEURL="${SYNAPSE_PUBLIC_BASEURL:-${SERVICE_URL_MATRIX_8008}}"
+        PUBLIC_BASEURL="${PUBLIC_BASEURL%/}"
+
+        ##########################
+        #                        #
+        # homeserver.yaml: start #
+        #                        #
+        ##########################
+        cat <<EOF > /data/homeserver.yaml
+        server_name: "${SERVER_NAME}"
+        pid_file: /data/homeserver.pid
+        public_baseurl: "${PUBLIC_BASEURL}/"
+
+        # server
+        listeners:
+          - port: 8008
+            tls: false
+            type: http
+            x_forwarded: true
+            bind_addresses: ['0.0.0.0']
+            resources:
+              - names: [client, federation]
+                compress: false
+
+        # database
+        database:
+          name: sqlite3
+          args:
+            database: /data/homeserver.db
+
+        # general
+        log_config: "/data/${SERVER_NAME}.log.config"
+        media_store_path: /data/media_store
+        report_stats: ${SYNAPSE_REPORT_STATS}
+        allow_guest_access: ${ENABLE_GUEST_ACCESS}
+        allow_public_rooms_without_auth: ${ALLOW_PUBLIC_ROOMS_WITHOUT_AUTH}
+
+        # secrets
+        registration_shared_secret: $(<./registration_shared_secret)
+        macaroon_secret_key: $(<./macaroon_secret_key)
+        form_secret: $(<./form_secret)
+        signing_key_path: "/data/${SERVER_NAME}.signing.key"
+
+        # rooms
+        auto_create_auto_join_rooms: ${AUTO_CREATE_AUTO_JOIN_ROOMS}
+        autocreate_auto_join_rooms_federated: ${AUTO_CREATE_AUTO_JOIN_ROOMS_FEDERATED}
+
+        # federation
+        trusted_key_servers:
+          - server_name: "matrix.org"
+        allow_public_rooms_over_federation: ${ALLOW_PUBLIC_ROOMS_OVER_FEDERATION}
+        EOF
+        ########################
+        #                      #
+        # homeserver.yaml: end #
+        #                      #
+        ########################
+
+        [ -n "${AUTO_JOIN_ROOMS}" ] && echo >> /data/homeserver.yaml && cat <<EOF >> /data/homeserver.yaml
+        auto_join_rooms:
+        EOF
+
+        if [ -n "${AUTO_JOIN_ROOMS}" ]; then
+          OLD_IFS="$IFS"
+          IFS=','
+          for room in ${AUTO_JOIN_ROOMS}; do
+            room="$(echo "${room}" | xargs)"
+            [ -n "${room}" ] && echo "  - \"${room}\"" >> /data/homeserver.yaml
+          done
+          IFS="$OLD_IFS"
+        fi
+
+        [ "${ENABLE_REGISTRATION}" = "true" ] && ! grep "# registration" /data/homeserver.yaml &>/dev/null \
+        && echo >> /data/homeserver.yaml \
+        && cat <<EOF >> /data/homeserver.yaml
+        # registration
+        enable_registration: true  # Allows users to register on your server.
+        EOF
+
+        [ "${ENABLE_REGISTRATION_WITHOUT_VERIFICATION}" = "true" ] && ! grep "enable_registration_without_verification" /data/homeserver.yaml &>/dev/null \
+        && echo >> /data/homeserver.yaml \
+        && cat <<EOF >> /data/homeserver.yaml
+        enable_registration_without_verification: true
+        EOF
+
+        [ -n "${RECAPTCHA_PUBLIC_KEY}" ] && [ -n "${RECAPTCHA_PRIVATE_KEY}" ] && ! grep "${RECAPTCHA_PUBLIC_KEY}" /data/homeserver.yaml &>/dev/null \
+        && echo >> /data/homeserver.yaml \
+        && cat <<EOF >> /data/homeserver.yaml
+        # reCAPTCHA settings
+        enable_registration_captcha: true  # Enables CAPTCHA for registrations.
+        recaptcha_public_key: "${RECAPTCHA_PUBLIC_KEY}"
+        recaptcha_private_key: "${RECAPTCHA_PRIVATE_KEY}"
+        recaptcha_siteverify_api: "https://www.google.com/recaptcha/api/siteverify"
+        EOF
+
+        if [ "${OIDC_ENABLED}" = "true" ]; then
+          if [ -z "${OIDC_ISSUER}" ] || [ -z "${OIDC_CLIENT_ID}" ] || [ -z "${OIDC_CLIENT_SECRET}" ]; then
+            echo "OIDC_ENABLED=true requires OIDC_ISSUER, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET" >&2
+            exit 1
+          fi
+
+          : "${OIDC_LOCALPART_TEMPLATE:={{ user.preferred_username|lower }}}"
+          : "${OIDC_DISPLAY_NAME_TEMPLATE:={{ user.name|default(user.preferred_username) }}}"
+          : "${OIDC_EMAIL_TEMPLATE:={{ user.email }}}"
+
+          echo >> /data/homeserver.yaml
+          cat <<EOF >> /data/homeserver.yaml
+        # OIDC / SSO
+        oidc_providers:
+          - idp_id: "${OIDC_PROVIDER_ID}"
+            idp_name: "${OIDC_PROVIDER_NAME}"
+            discover: true
+            issuer: "${OIDC_ISSUER}"
+            client_id: "${OIDC_CLIENT_ID}"
+            client_secret: "${OIDC_CLIENT_SECRET}"
+            client_auth_method: "${OIDC_CLIENT_AUTH_METHOD}"
+            allow_existing_users: ${OIDC_ALLOW_EXISTING_USERS}
+            enable_registration: ${OIDC_ENABLE_REGISTRATION}
+            scopes:
+        EOF
+
+          OLD_IFS="$IFS"
+          IFS=','
+          for scope in ${OIDC_SCOPES}; do
+            scope="$(echo "${scope}" | xargs)"
+            [ -n "${scope}" ] && echo "              - ${scope}" >> /data/homeserver.yaml
+          done
+          IFS="$OLD_IFS"
+
+          cat <<EOF >> /data/homeserver.yaml
+            user_mapping_provider:
+              config:
+                localpart_template: "${OIDC_LOCALPART_TEMPLATE}"
+                display_name_template: "${OIDC_DISPLAY_NAME_TEMPLATE}"
+                email_template: "${OIDC_EMAIL_TEMPLATE}"
+        EOF
+        fi
+
+        if [ -n "${SSO_CLIENT_WHITELIST}" ]; then
+          echo >> /data/homeserver.yaml
+          cat <<EOF >> /data/homeserver.yaml
+        sso:
+          client_whitelist:
+        EOF
+          OLD_IFS="$IFS"
+          IFS=','
+          for client in ${SSO_CLIENT_WHITELIST}; do
+            client="$(echo "${client}" | xargs)"
+            [ -n "${client}" ] && echo "            - \"${client}\"" >> /data/homeserver.yaml
+          done
+          IFS="$OLD_IFS"
+        fi
+
+        register_admin(){
+          while ! curl -I localhost:8008 &>/dev/null; do
+            sleep 1
+          done
+          register_new_matrix_user \
+            -a \
+            -u ${SERVICE_USER_ADMIN} \
+            -p ${SERVICE_PASSWORD_ADMIN} \
+            -c /data/homeserver.yaml \
+            http://localhost:8008 &>/dev/null
+        }
+        [ -n "${SERVICE_USER_ADMIN}" ] && [ -n "${SERVICE_PASSWORD_ADMIN}" ] && register_admin &
+
+        /start.py
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -I
+        - localhost:8008
+      interval: 5s
+      timeout: 3s
+      retries: 5
